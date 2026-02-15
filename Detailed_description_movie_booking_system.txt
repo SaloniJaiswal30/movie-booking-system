@@ -1,0 +1,421 @@
+1. System Overview
+
+The Movie Ticket Booking Platform is designed as a two-sided marketplace system that connects customers who want to book movie tickets with theater partners who manage movie screenings across their theaters.
+
+At a high level, the platform is responsible for:
+
+1. Onboarding theater partners and their theater infrastructure
+2. Allowing partners to configure movies, shows, seat layouts, and pricing
+3. Providing customers with real-time show discovery and seat availability
+4. Managing the complete ticket booking lifecycle
+5. Handling payments and partner revenue settlement
+6. Supporting ticket cancellation and platform-controlled refunds
+7. Sending booking confirmations and ticket notifications to customers
+
+In this system, the platform owns and manages the entire runtime inventory, including movie shows, seat availability, ticket data, and financial transactions. This ownership model ensures consistency in booking behavior and allows the platform to maintain real-time control over seat locking and availability during peak booking traffic.
+
+
+
+2. High Level Architecture Components
+The overall system is logically divided into multiple service layers, each responsible for a specific domain within the ticket booking lifecycle.
+
+
+2.1 Access Layer – API Gateway
+All incoming requests to the platform—whether initiated by customers booking tickets or partners managing theater inventory—are routed through a centralized API Gateway.
+This layer acts as the primary entry point into the system and is responsible for:
+
+1. Routing incoming requests to appropriate backend services
+2. Enforcing authentication and authorization policies
+3. Applying rate limits and request throttling
+4. Managing API access for external Partner PMS integrations
+
+By decoupling external client interactions from internal services, the API Gateway helps maintain security, scalability, and consistent request handling across the platform.
+
+
+2.2 Partner Management Layer
+This layer enables theater partners to onboard themselves onto the platform and configure the movie show inventory that will later be available for customer bookings.
+
+a. Partner Onboarding Service
+The Partner Onboarding Service manages the lifecycle of theater partner registration and profile creation.
+
+It allows partners to:
+1. Register their theater details
+2. Submit ownership or operational verification information
+3. Create and maintain partner profiles within the platform
+
+Once the partner onboarding process is completed successfully, the system generates a unique Partner ID that will be used to associate future show configurations and ticket revenue with the corresponding partner.
+All partner-related information is stored within the Partner Details Database and becomes part of the platform-managed supply ecosystem.
+
+
+b. Movie Management Service
+
+After onboarding, partners can use the Movie Management Service to configure their theater offerings.
+
+This service allows partners to:
+
+1. Add movie metadata
+2. Configure theater screens
+3. Upload seat layouts
+4. Create show timings for specific movies
+5. Define pricing tiers for different seat categories
+
+All show-related configurations are stored within the Show Details Database, and the platform becomes the sole owner of this runtime inventory. This centralized ownership ensures that all downstream services—such as seat management and ticket booking—operate on a consistent and platform-controlled dataset.
+
+Additionally, this service also supports external PMS integrations, enabling partners to sync their theater inventory through APIs if they prefer automated system integration over manual dashboard configuration.
+
+
+2.3 Show Discovery Layer – Show Service
+
+The Show Service is responsible for enabling customers to browse and discover available movies and showtimes across different theaters.
+
+When customers interact with the booking application, this service retrieves relevant show metadata such as:
+
+Movie listings
+1. Theater locations
+2. Available show timings
+3. Ticket pricing information
+
+This information is fetched from the Show Details Database and presented to the customer in a searchable and user-friendly format, forming the initial step in the ticket booking journey.
+
+
+2.4 Seat Management Layer – Seat Management Service
+
+The Seat Management Service plays a critical role in maintaining real-time seat availability across all active shows on the platform.
+
+It acts as the system’s inventory controller and is responsible for:
+1. Tracking seat availability for each show
+2. Locking seats when a customer initiates booking
+3. Preventing multiple customers from booking the same seat concurrently
+4. Managing seat lock expiration using configurable TTL timers
+
+Seats typically transition throuugh the following lifecycle states: "AVAILABLE → LOCKED → BOOKED"
+When a customer selects seats during booking, the service temporarily locks those seats for a predefined duration (for example, five minutes) to allow the customer to complete the payment process.
+All seat-related runtime data is stored within the Seat Details Database and serves as the single source of truth for booking eligibility.
+
+
+2.5 Ticket Booking Layer – Ticket Booking Service
+
+The Ticket Booking Service orchestrates the overall ticket reservation workflow once a customer selects seats for a particular show.
+
+Its responsibilities include:
+1. Initiating the booking transaction
+2. Interacting with the Seat Management Service to lock selected seats
+3. Coordinating payment processing through the Payment Service
+4. Generating ticket records upon successful payment
+
+After payment confirmation is received, the service finalizes the booking and stores the generated ticket details—including show information, selected seats, partner association, and payment references—within the Ticket Details Database.
+
+2.6 Payment & Settlement Layer
+
+This layer manages all financial transactions between customers, the platform, and theater partners.
+
+Ticket Booking Payment Service - 
+
+The Ticket Booking Payment Service handles customer payments during ticket booking.
+Under the marketplace payment model used by the platform: "Customer → Platform → Partner Settlement (T+N)"
+
+The service:
+
+1. Processes the full ticket amount from the customer
+2. Calculates the platform’s commission
+3. Determines the partner’s revenue share
+4. Records all transaction details in the Payment Details Database
+
+
+Partner Payment Service - 
+
+Once booking payments are recorded, the Partner Payment Service manages partner revenue settlement.
+
+It is responsible for:
+1. Reading partner revenue data from the Payment Database
+2. Maintaining settlement cycles based on T+N payout timelines
+3. Initiating partner payouts at scheduled intervals
+
+Settlement-related information is stored within the Partner Payment Details Database for reconciliation and reporting purposes.
+
+
+2.7 Notification Layer – Notification Service
+
+The Notification Service ensures timely communication with customers after successful ticket booking.
+
+Once a ticket generation event occurs, this service is triggered to send:
+1. Booking confirmation messages
+2. Ticket details
+3. QR code-based entry passes
+
+Notifications are delivered via:
+1. Email
+2. SMS
+
+This improves customer confidence and provides a digital proof of booking for theater entry.
+
+
+2.8 Cancellation & Refund Layer
+
+Although not explicitly shown in the initial diagrams, the platform supports ticket cancellation and refund functionality managed centrally.
+
+When a customer requests cancellation:
+1. The Ticket Booking Service validates cancellation eligibility
+2. Ticket status is updated from: "BOOKED → CANCELLED"
+3. The Seat Management Service releases previously booked seats back to availability
+4. The Payment Service initiates the refund process
+
+Refund details are stored in the Payment Details Database, and the Partner Payment Service adjusts the partner’s settlement record accordingly to reflect the refunded transaction.
+
+
+
+3. External Partner PMS Integration
+
+For partners using their own theater management systems, the platform supports integration through external APIs.
+
+Partner PMS systems can sync:
+1. Show configurations
+2. Seat layouts
+3. Pricing updates
+
+through the API Gateway into the Movie Management Service.
+
+Despite external integrations, the platform continues to act as the authoritative source of truth for show inventory, seat availability, and ticket ownership across all booking operations.
+
+
+
+
+1. PARTNER ONBOARDING SERVICE APIs
+
+➤ Register Partner
+Endpoint
+POST /partner/register
+
+Request Payload
+
+{
+  "partnerName": "PVR Cinemas",
+  "contactEmail": "admin@pvr.com",
+  "contactPhone": "+919876543210",
+  "theaterName": "PVR Orion Mall",
+  "theaterLocation": "Bangalore",
+  "bankDetails": {
+    "accountNumber": "XXXXXX1234",
+    "ifscCode": "HDFC0001234"
+  }
+}
+
+
+➤ Get Partner Details
+GET /partner/{partnerId}
+
+
+2. MOVIE MANAGEMENT SERVICE APIs
+
+➤ Add Movie
+POST /movies
+
+Request
+
+{
+  "partnerId": "PARTNER_12345",
+  "movieName": "Inception",
+  "language": "English",
+  "duration": 150,
+  "genre": "Sci-Fi"
+}
+
+
+➤ Create Show
+POST /shows
+
+Request
+
+{
+  "partnerId": "PARTNER_12345",
+  "movieId": "MOV_001",
+  "screenId": "SCR_01",
+  "showStartTime": "2026-02-20T18:00:00",
+  "showEndTime": "2026-02-20T21:00:00",
+  "pricing": [
+    {
+      "seatType": "Gold",
+      "price": 250
+    },
+    {
+      "seatType": "Silver",
+      "price": 180
+    }
+  ]
+}
+
+
+➤ Upload Seat Layout
+POST /shows/{showId}/seats/layout
+
+Request
+
+{
+  "rows": 10,
+  "columns": 15,
+  "seatMap": [
+    {
+      "seatId": "A1",
+      "seatType": "Gold"
+    },
+    {
+      "seatId": "A2",
+      "seatType": "Gold"
+    }
+  ]
+}
+
+
+
+3. SHOW SERVICE APIs (CUSTOMER DISCOVERY)
+
+➤ Get Movies List
+GET /movies?city=Bangalore
+
+
+➤ Get Shows by Movie
+GET /shows?movieId=MOV_001
+
+
+➤ Get Show Details
+GET /shows/{showId}
+
+
+4. SEAT MANAGEMENT SERVICE APIs
+
+➤ Get Seat Availability
+GET /shows/{showId}/seats
+
+
+➤ Lock Seats
+POST /seats/lock
+
+
+Request
+
+{
+  "showId": "SHOW_001",
+  "userId": "USER_101",
+  "seats": ["A1", "A2"]
+}
+
+➤ Release Locked Seats
+POST /seats/release
+
+
+
+5. TICKET BOOKING SERVICE APIs
+
+➤ Initiate Booking
+POST /booking/initiate
+
+
+Request
+
+{
+  "userId": "USER_101",
+  "showId": "SHOW_001",
+  "lockId": "LOCK_456"
+}
+
+
+➤ Confirm Booking
+POST /booking/confirm
+
+
+Request
+
+{
+  "bookingId": "BOOK_123",
+  "paymentId": "PAY_789"
+}
+
+
+
+6. PAYMENT SERVICE APIs
+
+➤ Initiate Payment
+POST /payments/initiate
+
+
+Request
+
+{
+  "bookingId": "BOOK_123",
+  "amount": 500,
+  "paymentMethod": "UPI"
+}
+
+➤ Payment Callback (Gateway → Platform)
+POST /payments/callback
+
+
+Request
+
+{
+  "paymentId": "PAY_789",
+  "status": "SUCCESS"
+}
+
+
+7. PARTNER SETTLEMENT SERVICE APIs
+
+➤ Get Settlement Details
+GET /partner/{partnerId}/settlement
+
+➤ Trigger Settlement
+POST /partner/{partnerId}/settlement/process
+
+
+8. NOTIFICATION SERVICE APIs
+➤ Send Ticket Notification
+POST /notifications/ticket
+
+
+Request
+
+{
+  "userId": "USER_101",
+  "ticketId": "TICK_567",
+  "email": "user@gmail.com",
+  "phone": "+919876543210"
+}
+
+
+9. CANCELLATION & REFUND APIs
+➤ Cancel Booking
+POST /booking/cancel
+
+
+Request
+
+{
+  "ticketId": "TICK_567",
+  "userId": "USER_101"
+}
+
+➤ Initiate Refund
+POST /payments/refund
+
+
+Request
+
+{
+  "ticketId": "TICK_567",
+  "refundAmount": 500
+}
+
+
+
+10. PARTNER PMS EXTERNAL SYNC APIs
+➤ Sync Shows
+POST /external/pms/shows
+
+➤ Update Pricing
+PUT /external/pms/shows/{showId}/pricing
+
+
+➤ Update Seat Layout
+PUT /external/pms/shows/{showId}/seats
+
+
